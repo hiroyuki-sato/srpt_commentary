@@ -127,24 +127,42 @@ static struct srp_iu *srp_alloc_iu(struct srp_host *host, size_t size,
 {
 	struct srp_iu *iu;
 
+	/* メモリの割り当て */
 	iu = kmalloc(sizeof *iu, gfp_mask);
 	if (!iu)
 		goto out;
 
+	/*  メモリの割り当て */
+	/*  kzalloc():  kmalloc() + memset() ? */
 	iu->buf = kzalloc(size, gfp_mask);
 	if (!iu->buf)
 		goto out_free_iu;
 
+	/* directionは、dma_data_directionの値が格納されている
+	 * linux/dma_direction.hに定義されている
+	 * DMA_BIDIRECTIONAL, DMA_TO_DEVICE, DMA_FROM_DEVICE, DMA_NONE
+	 * が定義されている
+	 * RDMA的には、WRITE,READしかないのか？
+	 */
+
+
+	/* dmaの場所割り当て? */
 	iu->dma = ib_dma_map_single(host->srp_dev->dev, iu->buf, size,
 				    direction);
+	
 	if (ib_dma_mapping_error(host->srp_dev->dev, iu->dma))
 		goto out_free_buf;
 
+	/* サイズを指定 */
 	iu->size      = size;
+
+	/* ディレクションを指定する */
 	iu->direction = direction;
 
+	/* iuを返す */
 	return iu;
 
+	/* 失敗したらメモリを開放してNULLを返す */
 out_free_buf:
 	kfree(iu->buf);
 out_free_iu:
@@ -155,12 +173,16 @@ out:
 
 static void srp_free_iu(struct srp_host *host, struct srp_iu *iu)
 {
+  /* iuを開放する */
 	if (!iu)
 		return;
 
+	/* mapを開放する */
 	ib_dma_unmap_single(host->srp_dev->dev, iu->dma, iu->size,
 			    iu->direction);
+	/* メモリ開放 */
 	kfree(iu->buf);
+	/* メモリ開放 */
 	kfree(iu);
 }
 
@@ -1109,10 +1131,11 @@ err:
 	return SCSI_MLQUEUE_HOST_BUSY;
 }
 
+/* 送受信用のiuを割り当てる */
 static int srp_alloc_iu_bufs(struct srp_target_port *target)
 {
 	int i;
-
+	/* Recieve Queueの割り当て */
 	for (i = 0; i < SRP_RQ_SIZE; ++i) {
 		target->rx_ring[i] = srp_alloc_iu(target->srp_host,
 						  target->max_ti_iu_len,
@@ -1121,6 +1144,7 @@ static int srp_alloc_iu_bufs(struct srp_target_port *target)
 			goto err;
 	}
 
+	/* Send Queueの割り当て */
 	for (i = 0; i < SRP_SQ_SIZE + 1; ++i) {
 		target->tx_ring[i] = srp_alloc_iu(target->srp_host,
 						  srp_max_iu_len,
@@ -1131,6 +1155,7 @@ static int srp_alloc_iu_bufs(struct srp_target_port *target)
 
 	return 0;
 
+	/* エラー時にはメモリ開放 */
 err:
 	for (i = 0; i < SRP_RQ_SIZE; ++i) {
 		srp_free_iu(target->srp_host, target->rx_ring[i]);
