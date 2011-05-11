@@ -263,10 +263,16 @@ static int srp_create_target_ib(struct srp_target_port *target)
 	struct ib_qp_init_attr *init_attr;
 	int ret;
 
+	/*
+	 * kmallocとkzallocの違い。
+	 * GFP_KERNELとは?
+	 */
 	init_attr = kzalloc(sizeof *init_attr, GFP_KERNEL);
 	if (!init_attr)
 		return -ENOMEM;
 
+	/* cqというのは、おそらくComsumer Queueの略 */
+	/* 構造体のところをもう少し詳しく */
 	target->cq = ib_create_cq(target->srp_host->srp_dev->dev,
 				  srp_completion, NULL, target, SRP_CQ_SIZE, 0);
 	if (IS_ERR(target->cq)) {
@@ -274,6 +280,7 @@ static int srp_create_target_ib(struct srp_target_port *target)
 		goto out;
 	}
 
+	/* 通知 */
 	ib_req_notify_cq(target->cq, IB_CQ_NEXT_COMP);
 
 	init_attr->event_handler       = srp_qp_event;
@@ -286,6 +293,19 @@ static int srp_create_target_ib(struct srp_target_port *target)
 	init_attr->send_cq             = target->cq;
 	init_attr->recv_cq             = target->cq;
 
+	/* 
+	 * Queue Pairを作る際にすること
+	 * イベントハンドラーを登録
+	 * SRP_SQ_SIZEを指定
+	 * SRP_RQ_SIZEを指定
+	 * max_recieve_sgeを指定 1固定 sge: Scatter Gather Engine
+	 * max_send_sgeを指定
+	 * sig_typeを指定、TODO: sig_typeって他になにがあるの?
+	 * Qeue Typeを指定 : IB_QPT_RC つまりRCということ
+	 * send_cq, recv_cqともに、同じcqを指定する
+	 * /
+
+	 /* いざQP作成 , 失敗したらエラー */
 	target->qp = ib_create_qp(target->srp_host->srp_dev->pd, init_attr);
 	if (IS_ERR(target->qp)) {
 		ret = PTR_ERR(target->qp);
@@ -293,6 +313,7 @@ static int srp_create_target_ib(struct srp_target_port *target)
 		goto out;
 	}
 
+	/* 初期化 */
 	ret = srp_init_qp(target, target->qp);
 	if (ret) {
 		ib_destroy_qp(target->qp);
@@ -309,11 +330,15 @@ static void srp_free_target_ib(struct srp_target_port *target)
 {
 	int i;
 
+	/* CQを解放 */
 	ib_destroy_qp(target->qp);
+	/* QPも解放 */
 	ib_destroy_cq(target->cq);
 
+	/* SRP_RQ_SIZE分, srp_free_iuを呼び出す */
 	for (i = 0; i < SRP_RQ_SIZE; ++i)
 		srp_free_iu(target->srp_host, target->rx_ring[i]);
+	/* SRP_SQ_SIZE分, srp_free_iuを呼び出す */
 	for (i = 0; i < SRP_SQ_SIZE + 1; ++i)
 		srp_free_iu(target->srp_host, target->tx_ring[i]);
 }
